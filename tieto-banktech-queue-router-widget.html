@@ -200,12 +200,13 @@ textarea.notes::placeholder { font-style: italic; font-size: 12px; color: var(--
   <div class="qr-row"><span class="qr-label">Target queue</span><span class="qr-value">Jeremy_Q</span></div>
   <div class="qr-row"><span class="qr-label">This contact</span><span class="qr-status qr-neutral" id="qr-status">Waiting for next contact</span></div>
   <div class="qr-payload" id="qr-payload">
-    <div class="qr-prow"><span>call.queueKey</span><b id="qr-qk">—</b></div>
-    <div class="qr-prow"><span>vars.system_queue_key</span><b id="qr-vk">—</b></div>
+    <div class="qr-prow"><span>queueKey</span><b id="qr-qk">—</b></div>
+    <div class="qr-prow"><span>system_queue_key</span><b id="qr-vk">—</b></div>
+    <div class="qr-prow"><span>system_custkey</span><b id="qr-ck">—</b></div>
     <div class="qr-prow"><span>sessionId</span><b id="qr-sid">—</b></div>
     <div class="qr-prow"><span>caller</span><b id="qr-caller">—</b></div>
   </div>
-  <div class="qr-hint">Reads call.queueKey, cross-checked against vars.system_queue_key.</div>
+  <div class="qr-hint">Reads queueKey, cross-checked against the KML variable bag.</div>
 </div></template>
 <script type="application/json" id="widget-config">{"slug": "tieto-banktech-queue-router", "lang": "en-GB", "brand": {"customer": "#021E57"}, "channels": ["phone", "chat"], "header": {"title": "Fraud review desk", "subtitle": "Evry Card Services · Tieto Banktech", "initials": "EC"}, "layout": {"sidebar": [{"type": "contact", "title": "Customer", "icon": "person", "source": "Core banking", "name": "Andrew Smith", "initials": "AS", "subtitle": "Retail cardholder · Bergen, NO", "phones": [{"label": "Mobile", "number": "07873616744", "ops": ["dial", "sms"]}], "emails": [{"label": "Email", "address": "andrew.smith@example.co.uk", "subject": "Card query"}], "tags": [{"text": "BankID verified", "tone": "ok"}, {"text": "Mastercard ••9183", "tone": "info"}]}], "main": [{"type": "signature", "title": "Queue router", "icon": "link", "source": "Puzzel Widget API"}, {"type": "fields", "title": "Flagged transaction", "icon": "credit_card", "source": "Fraud & risk engine", "rows": [{"label": "Merchant", "value": "ElektroNord AS"}, {"label": "Amount", "value": "NOK 18 450,00", "num": true}, {"label": "Date and time", "value": "27 Sep, 02:47", "num": true}, {"label": "Risk score", "value": "82 / 100 · High", "tone": "bad"}, {"label": "Case status", "value": "Not opened", "tone": "info", "id": "case_status"}]}, {"type": "table", "title": "Risk factors", "icon": "warning", "source": "Fraud & risk engine", "columns": ["Factor", "Weight", "Note"], "rows": [["Unusual amount", {"value": "High", "tone": "bad"}, "3.8× typical spend"], ["Unrecognised device", {"value": "High", "tone": "bad"}, "First time seen on account"], ["Location mismatch", {"value": "Medium", "tone": "warn"}, "IP in DE, recent activity in NO"], ["New merchant", {"value": "Low", "tone": "info"}, "First transaction with merchant"]]}], "footer": [{"type": "nba", "title": "Flagged transaction unconfirmed", "text": "Ask the customer to confirm the ElektroNord purchase before closing this contact.", "icon": "lightbulb_2", "buttons": [{"label": "Open a fraud case", "icon": "report", "style": "primary", "action": {"type": "system", "system": "Fraud case management", "operation": "Open case", "done": "Case FC-2026-00417 opened", "set": {"case_status": {"value": "FC-2026-00417", "tone": "ok"}}}}]}]}}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mousetrap/1.6.5/mousetrap.min.js"></script>
@@ -452,30 +453,39 @@ W.render();
 (function(){
   var TARGET='Jeremy_Q', settled=false, API=null;
   var statusEl=document.getElementById('qr-status'), payloadEl=document.getElementById('qr-payload');
-  var qkEl=document.getElementById('qr-qk'), vkEl=document.getElementById('qr-vk');
+  var qkEl=document.getElementById('qr-qk'), vkEl=document.getElementById('qr-vk'), ckEl=document.getElementById('qr-ck');
   var sidEl=document.getElementById('qr-sid'), callerEl=document.getElementById('qr-caller');
   function readVars(vars,key){
     if(!vars) return null;
     if(Array.isArray(vars)){ var h=vars.find(function(v){return v&&v.name===key;}); return h?h.value:null; }
     return vars[key]||null;
   }
-  function apply(call,demo){
-    if(!call) return;
-    var qk=call.queueKey||null, vk=readVars(call.vars,'system_queue_key');
-    qkEl.textContent=qk||'—'; vkEl.textContent=vk||'—';
-    var sid=call.sessionId||''; sidEl.textContent=sid?(sid.slice(0,13)+(sid.length>13?'…':'')):'—';
-    callerEl.textContent=call.caller||'—';
+  function apply(raw,kind,demo){
+    if(!raw) return;
+    var qk=raw.queueKey||null;
+    var varsBag = kind==='call' ? raw.vars : raw.variables;
+    var vk=readVars(varsBag,'system_queue_key');
+    var ck=readVars(varsBag,'system_custkey');
+    qkEl.textContent=qk||'—'; vkEl.textContent=vk||'—'; ckEl.textContent=ck||'—';
+    var sid=raw.sessionId||''; sidEl.textContent=sid?(sid.slice(0,13)+(sid.length>13?'…':'')):'—';
+    callerEl.textContent=raw.caller||(raw.request&&raw.request.remoteAddress)||'—';
     payloadEl.style.display='flex';
     var match=(qk===TARGET)||(vk===TARGET);
     statusEl.className='qr-status '+(match?'qr-ok':'qr-warn');
     statusEl.textContent=(match?'Jeremy_Q flow active':'Other queue: standard view')+(demo?' (demo)':'');
     settled=true;
-    if(API&&API.call&&!demo){ try{ API.call('tab.setInfo','Queue: '+(qk||vk||'unknown')); }catch(e){} }
+    if(API&&API.call&&!demo){
+      try{ API.call('tab.setInfo','Queue: '+(qk||vk||'unknown')); }catch(e){}
+      try{
+        API.call('widget.preventShow', !match);
+        if(match){ API.call('widget.show'); } else { API.call('widget.hide'); }
+      }catch(e){}
+    }
   }
   W.on('connected', function(api){ API=api; });
-  W.on('context', function(ctx){ apply((ctx&&(ctx.call||ctx))||null, false); });
+  W.on('context', function(ctx){ apply((ctx&&ctx.raw)||null, ctx&&ctx.kind, false); });
   setTimeout(function(){
-    if(!settled) apply({ queueKey:'Jeremy_Q', vars:{ system_queue_key:'Jeremy_Q' }, sessionId:'demo-session-0001', caller:'07873616744' }, true);
+    if(!settled) apply({ queueKey:'Jeremy_Q', vars:{ system_queue_key:'Jeremy_Q', system_custkey:'99206' }, sessionId:'demo-session-0001', caller:'07873616744' }, 'call', true);
   }, 1500);
 })();
 
