@@ -455,12 +455,20 @@ W.render();
 
 (function () {
   var TARGET_QUEUE = 'q_Rayhan_Support_queue';
+  function resolveQueueKey(call) {
+    if (!call) { return null; }
+    if (call.vars && call.vars.system_queue_key) { return call.vars.system_queue_key; }
+    return call.queueKey || null;
+  }
+  function applyQueueGate(api, call) {
+    var onTargetQueue = resolveQueueKey(call) === TARGET_QUEUE;
+    api.call('widget.preventShow', !onTargetQueue);
+    if (onTargetQueue) { api.call('widget.show'); } else { api.call('widget.hide'); }
+  }
   W.on('connected', function (api) {
-    api.on('SYSTEM_INCOMING_CALL', function (evt) {
-      var call = evt && evt.call;
-      var onTargetQueue = call && call.queueKey === TARGET_QUEUE;
-      api.call('widget.preventShow', !onTargetQueue);
-    });
+    api.call('call.getCurrentCall').then(function (call) { applyQueueGate(api, call); }).catch(function () {});
+    api.on('SYSTEM_INCOMING_CALL', function (evt) { applyQueueGate(api, evt && evt.call); });
+    api.on('SYSTEM_CALL_STATE_CHANGE', function (evt) { applyQueueGate(api, evt && evt.call); });
   });
 })();
 
