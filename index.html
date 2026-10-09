@@ -438,42 +438,26 @@ W.render();
 <script>
 
 (function () {
-  /* ===== PCM configuration: add credentials here, nowhere else ===== */
+  /* ===== PCM configuration (no credentials here: they live in the Cloudflare Worker) ===== */
   const PCM = {
-    baseUrl: 'https://salessweden.cm.puzzel.com/api/v1',
-    clientId: '9318514203138',
-    clientSecret: 'r7CrUWJpKiTzGhmnjiw1P1fP',
-    defaultTicketId: '100655'   // used when the widget URL has no valid ?ticket= value
+    proxyUrl: 'https://apg-pcm-proxy.rayhansh89.workers.dev',   // e.g. https://apg-pcm-proxy.<account>.workers.dev (no trailing slash)
+    defaultTicketId: '100655'              // used when the widget URL has no valid ?ticket= value
   };
   // Ticket id from the widget URL, e.g. index.html?ticket=100702. Digits only; anything else is ignored.
   const urlTicket = (new URLSearchParams(window.location.search).get('ticket') || '').trim();
   PCM.demoTicketId = /^\d{1,12}$/.test(urlTicket) ? urlTicket : PCM.defaultTicketId;
 
-  /* ===== PCM service layer (no DOM access) ===== */
+  /* ===== PCM service layer (no DOM access) =====
+     The Worker performs GET /oauth_tokens and GET /tickets/{id} against PCM (Bearer token,
+     and standard JSON headers) and returns the ticket JSON with CORS headers. */
   const PcmService = {
-    _token: null,
-    async token() {
-      if (this._token) return this._token;
-      if (/^REPLACE_/.test(PCM.clientId) || /^REPLACE_/.test(PCM.clientSecret)) throw new Error('credentials not set');
-      const q = new URLSearchParams({ client_id: PCM.clientId, client_secret: PCM.clientSecret });
-      const r = await fetch(PCM.baseUrl + '/oauth_tokens?' + q, { method: 'GET' });
-      if (!r.ok) throw new Error('token ' + r.status);
-      const j = await r.json();
-      this._token = j.access_token;               // confirmed: payload contains access_token
-      if (!this._token) throw new Error('no token in response');
-      return this._token;
-    },
     async getTicket(id) {
-      const r = await fetch(PCM.baseUrl + '/tickets/' + encodeURIComponent(id), {
-        headers: {
-          'Authorization': 'Bearer ' + (await this.token()),
-          'Content-Type': 'application/json',
-          'Accept': '*/*'
-        } });
-      if (!r.ok) throw new Error('ticket ' + r.status);
+      if (/^REPLACE_/.test(PCM.proxyUrl)) throw new Error('proxy url not set');
+      const r = await fetch(PCM.proxyUrl + '/ticket/' + encodeURIComponent(id));
+      if (!r.ok) throw new Error('proxy ' + r.status);
       return r.json();
     },
-    // Today: one fixed ticket. Later: look up by participant and return several.
+    // Today: one ticket. Later: look up by participant and return several.
     async getOpenCases() { return [mapCase(await this.getTicket(PCM.demoTicketId))]; }
   };
 
