@@ -494,7 +494,17 @@ W.render();
 
   PcmService.getOpenCases().then(cases => {
     root.innerHTML = cases.length ? cases.map(card).join('') : 'No open cases.';
-  }).catch(() => { root.textContent = 'Case information is currently unavailable.'; });
+  }).catch(e => {
+    // Reason goes to the console only (no credentials). Add ?debug=1 to the widget URL to also show it on screen.
+    console.error('[PCM] case lookup failed:', e && e.message ? e.message : e);
+    root.textContent = 'Case information is currently unavailable.';
+    if (new URLSearchParams(window.location.search).get('debug') === '1') {
+      const d = document.createElement('div');
+      d.className = 'pc-team';
+      d.textContent = 'Debug: ' + (e && e.message ? e.message : e);
+      root.appendChild(d);
+    }
+  });
 })();
 
 </script>
